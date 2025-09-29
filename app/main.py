@@ -2,9 +2,6 @@ from fastapi import FastAPI, HTTPException, status, Path, Query
 from typing import List, Optional, Annotated
 from fastapi.responses import JSONResponse
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
 
 # اطلاعات کاربردی و زیبا
 app = FastAPI(
@@ -72,104 +69,25 @@ def read_root():
 
 
 @app.get("/expenses")
-def get_all_expenses(
-    sort_by: Annotated[
-        Optional[str],
-        Query(
-            title="مرتب‌سازی بر اساس",
-            description="فیلدی که می‌خواهید بر اساس آن مرتب‌سازی کنید",
-            regex="^(id|description|amount)$",  # فقط این مقادیر مجاز
-            example="amount",
-        ),
-    ] = None,
-    order: Annotated[
-        Optional[str],
-        Query(
-            title="ترتیب مرتب‌سازی",
-            description="ترتیب صعودی یا نزولی",
-            regex="^(asc|desc)$",
-            example="desc",
-        ),
-    ] = "asc",
-    limit: Annotated[
-        Optional[int],
-        Query(
-            title="تعداد محدود",
-            description="حداکثر تعداد هزینه‌هایی که برگردانده شود",
-            ge=1,
-            le=100,
-            example=10,
-        ),
-    ] = None,
-    min_amount: Annotated[
-        Optional[float],
-        Query(
-            title="حداقل مبلغ",
-            description="فیلتر هزینه‌ها بر اساس حداقل مبلغ",
-            ge=0,
-            example=50000,
-        ),
-    ] = None,
-    max_amount: Annotated[
-        Optional[float],
-        Query(
-            title="حداکثر مبلغ",
-            description="فیلتر هزینه‌ها بر اساس حداکثر مبلغ",
-            ge=0,
-            example=500000,
-        ),
-    ] = None,
-):
+def get_all_expenses():
 
     if not expenses:
-        return {
-            "message": "هیچ هزینه‌ای ثبت نشده است",
-            "expenses": [],
-            "total_count": 0,
-            "total_amount": 0,
-        }
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail={
+                                    "message": "هیچ هزینه‌ای ثبت نشده است",
+                                    "expenses": [],
+                                    "total_count": 0,
+                                    "total_amount": 0,
+                            })
 
-    filtered_expenses = expenses.copy()
-
-    if min_amount is not None:
-        filtered_expenses = [
-            exp for exp in filtered_expenses if exp["amount"] >= min_amount
-        ]
-
-    if max_amount is not None:
-        filtered_expenses = [
-            exp for exp in filtered_expenses if exp["amount"] <= max_amount
-        ]
-
-    if min_amount is not None and max_amount is not None:
-        if min_amount > max_amount:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="حداقل مبلغ نمی‌تواند بزرگ‌تر از حداکثر مبلغ باشد",
-            )
-
-    if sort_by in ["id", "description", "amount"]:
-        reverse_order = order == "desc"
-        filtered_expenses.sort(key=lambda x: x[sort_by], reverse=reverse_order)
-
-    if limit is not None:
-        filtered_expenses = filtered_expenses[:limit]
-
-    total_amount = sum(expense["amount"] for expense in filtered_expenses)
+    total_amount = sum(expense["amount"] for expense in expenses)
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
-            "expenses": filtered_expenses,
-            "total_count": len(filtered_expenses),
-            "total_amount": total_amount,
-            "filters_applied": {
-                "sort_by": sort_by,
-                "order": order,
-                "limit": limit,
-                "min_amount": min_amount,
-                "max_amount": max_amount,
-            },
+            "expenses": expenses,
+            "total_count": len(expenses),
+            "total_amount": total_amount
         },
     )
 
@@ -181,9 +99,8 @@ def create_expense(
         Query(
             title="توضیح هزینه",
             description="توضیح کاملی از هزینه انجام شده",
-            min_length=3,
+            min_length=1,
             max_length=200,
-            regex=r"^[آ-ی\u0600-\u06FFa-zA-Z0-9\s\-_.,!؟]+$",
             example="خرید مواد غذایی از فروشگاه",
         ),
     ],
@@ -196,16 +113,7 @@ def create_expense(
             le=10000000,  # حداکثر 10 میلیون تومان
             example=150000.0,
         ),
-    ],
-    category: Annotated[
-        Optional[str],
-        Query(
-            title="دسته‌بندی",
-            description="دسته‌بندی هزینه",
-            regex="^(غذا|حمل‌ونقل|خرید|قبوض|تفریح|سایر)$",
-            example="غذا",
-        ),
-    ] = "سایر",
+    ]
 ):
     global next_id
 
@@ -213,18 +121,16 @@ def create_expense(
         "id": next_id,
         "description": description.strip(),
         "amount": amount,
-        "category": category,
-        "created_at": "2025-09-29T14:45:00",  # در حالت واقعی از datetime استفاده کنید
     }
 
     expenses.append(new_expense)
     next_id += 1
 
-    return {
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content={
         "success": True,
         "message": "هزینه با موفقیت ایجاد شد",
         "expense": new_expense,
-    }
+    })
 
 
 @app.get("/expenses/search")
@@ -236,67 +142,21 @@ def search_expenses(
             description="متنی که می‌خواهید در توضیحات هزینه‌ها جستجو کنید",
             min_length=1,
             max_length=100,
-            regex=r"^[آ-ی\u0600-\u06FFa-zA-Z0-9\s]+$",  # فارسی، انگلیسی، عدد و فاصله
             example="خرید",
         ),
-    ],
-    case_sensitive: Annotated[
-        Optional[bool],
-        Query(
-            title="حساسیت به حروف",
-            description="آیا جستجو حساس به حروف بزرگ و کوچک باشد؟",
-            example=False,
-        ),
-    ] = False,
-    exact_match: Annotated[
-        Optional[bool],
-        Query(
-            title="تطابق دقیق",
-            description="جستجو برای تطابق دقیق یا جزئی",
-            example=False,
-        ),
-    ] = False,
-    limit_results: Annotated[
-        Optional[int],
-        Query(
-            title="محدود کردن نتایج",
-            description="حداکثر تعداد نتایج جستجو",
-            ge=1,
-            le=50,
-            example=20,
-        ),
-    ] = None,
+    ]
 ):
 
-    search_query = query if case_sensitive else query.lower()
+    matching_expenses = [expense for expense in expenses if query in expense["description"]]
 
-    matching_expenses = []
-
-    for expense in expenses:
-        expense_desc = (
-            expense["description"] if case_sensitive else expense["description"].lower()
-        )
-
-        # نوع جستجو
-        if exact_match:
-            if search_query == expense_desc:
-                matching_expenses.append(expense)
-        else:
-            if search_query in expense_desc:
-                matching_expenses.append(expense)
-
-    if limit_results is not None:
-        matching_expenses = matching_expenses[:limit_results]
+    if not matching_expenses:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="چیزی پیدا نشد")
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
             "query": query,
-            "search_options": {
-                "case_sensitive": case_sensitive,
-                "exact_match": exact_match,
-                "limit_results": limit_results,
-            },
             "results": matching_expenses,
             "count": len(matching_expenses),
             "total_searched": len(expenses),
