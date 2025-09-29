@@ -72,13 +72,15 @@ def read_root():
 def get_all_expenses():
 
     if not expenses:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail={
-                                    "message": "هیچ هزینه‌ای ثبت نشده است",
-                                    "expenses": [],
-                                    "total_count": 0,
-                                    "total_amount": 0,
-                            })
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "message": "هیچ هزینه‌ای ثبت نشده است",
+                "expenses": [],
+                "total_count": 0,
+                "total_amount": 0,
+            },
+        )
 
     total_amount = sum(expense["amount"] for expense in expenses)
 
@@ -87,7 +89,7 @@ def get_all_expenses():
         content={
             "expenses": expenses,
             "total_count": len(expenses),
-            "total_amount": total_amount
+            "total_amount": total_amount,
         },
     )
 
@@ -113,7 +115,7 @@ def create_expense(
             le=10000000,  # حداکثر 10 میلیون تومان
             example=150000.0,
         ),
-    ]
+    ],
 ):
     global next_id
 
@@ -126,11 +128,14 @@ def create_expense(
     expenses.append(new_expense)
     next_id += 1
 
-    return JSONResponse(status_code=status.HTTP_201_CREATED, content={
-        "success": True,
-        "message": "هزینه با موفقیت ایجاد شد",
-        "expense": new_expense,
-    })
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED,
+        content={
+            "success": True,
+            "message": "هزینه با موفقیت ایجاد شد",
+            "expense": new_expense,
+        },
+    )
 
 
 @app.get("/expenses/search")
@@ -144,14 +149,17 @@ def search_expenses(
             max_length=100,
             example="خرید",
         ),
-    ]
+    ],
 ):
 
-    matching_expenses = [expense for expense in expenses if query in expense["description"]]
+    matching_expenses = [
+        expense for expense in expenses if query in expense["description"]
+    ]
 
     if not matching_expenses:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="چیزی پیدا نشد")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="چیزی پیدا نشد"
+        )
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
