@@ -37,7 +37,7 @@ app = FastAPI(
     license_info={
         "name": "MIT License",
         "url": "https://opensource.org/licenses/MIT",
-    }
+    },
 )
 
 
@@ -49,7 +49,7 @@ expenses: List[dict] = [
     {"id": 5, "description": "خرید لباس", "amount": 420000.0},
 ]
 
-next_id = len(expenses)+1
+next_id = len(expenses) + 1
 
 
 def find_expense_by_id(expense_id: int) -> Optional[dict]:
