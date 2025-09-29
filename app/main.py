@@ -1,6 +1,16 @@
 from fastapi import FastAPI, HTTPException, status, Path, Query
 from typing import List, Optional, Annotated
+from decimal import Decimal
 from fastapi.responses import JSONResponse
+from schemas import (
+    ExpenseCreate,
+    ExpenseUpdate,
+    ExpenseOut,
+    ExpensesListOut,
+    ExpenseEnvelope,
+    SearchResultsOut,
+    DeleteEnvelope,
+)
 
 
 # اطلاعات کاربردی و زیبا
@@ -68,150 +78,32 @@ def read_root():
     return {"message": "Expense Management API - استفاده از /docs برای مشاهده مستندات"}
 
 
-@app.get("/expenses")
-def get_all_expenses(
-    sort_by: Annotated[
-        Optional[str],
-        Query(
-            title="مرتب‌سازی بر اساس",
-            description="فیلدی که می‌خواهید بر اساس آن مرتب‌سازی کنید",
-            regex="^(id|description|amount)$",  # فقط این مقادیر مجاز
-            example="amount",
-        ),
-    ] = None,
-    order: Annotated[
-        Optional[str],
-        Query(
-            title="ترتیب مرتب‌سازی",
-            description="ترتیب صعودی یا نزولی",
-            regex="^(asc|desc)$",
-            example="desc",
-        ),
-    ] = "asc",
-    limit: Annotated[
-        Optional[int],
-        Query(
-            title="تعداد محدود",
-            description="حداکثر تعداد هزینه‌هایی که برگردانده شود",
-            ge=1,
-            le=100,
-            example=10,
-        ),
-    ] = None,
-    min_amount: Annotated[
-        Optional[float],
-        Query(
-            title="حداقل مبلغ",
-            description="فیلتر هزینه‌ها بر اساس حداقل مبلغ",
-            ge=0,
-            example=50000,
-        ),
-    ] = None,
-    max_amount: Annotated[
-        Optional[float],
-        Query(
-            title="حداکثر مبلغ",
-            description="فیلتر هزینه‌ها بر اساس حداکثر مبلغ",
-            ge=0,
-            example=500000,
-        ),
-    ] = None,
-):
-
+@app.get("/expenses", response_model=ExpensesListOut, status_code=status.HTTP_200_OK)
+def get_all_expenses():
     if not expenses:
-        return {
-            "message": "هیچ هزینه‌ای ثبت نشده است",
-            "expenses": [],
-            "total_count": 0,
-            "total_amount": 0,
-        }
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="هیچ هزینه‌ای ثبت نشده است",
+        )
+    total_amount = sum(e["amount"] for e in expenses)
 
-    filtered_expenses = expenses.copy()
-
-    if min_amount is not None:
-        filtered_expenses = [
-            exp for exp in filtered_expenses if exp["amount"] >= min_amount
-        ]
-
-    if max_amount is not None:
-        filtered_expenses = [
-            exp for exp in filtered_expenses if exp["amount"] <= max_amount
-        ]
-
-    if min_amount is not None and max_amount is not None:
-        if min_amount > max_amount:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="حداقل مبلغ نمی‌تواند بزرگ‌تر از حداکثر مبلغ باشد",
-            )
-
-    if sort_by in ["id", "description", "amount"]:
-        reverse_order = order == "desc"
-        filtered_expenses.sort(key=lambda x: x[sort_by], reverse=reverse_order)
-
-    if limit is not None:
-        filtered_expenses = filtered_expenses[:limit]
-
-    total_amount = sum(expense["amount"] for expense in filtered_expenses)
-
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "expenses": filtered_expenses,
-            "total_count": len(filtered_expenses),
-            "total_amount": total_amount,
-            "filters_applied": {
-                "sort_by": sort_by,
-                "order": order,
-                "limit": limit,
-                "min_amount": min_amount,
-                "max_amount": max_amount,
-            },
-        },
-    )
+    return {
+        "expenses": [ExpenseOut(**e).model_dump() for e in expenses],
+        "total_count": len(expenses),
+        "total_amount": total_amount,
+    }
 
 
-@app.post("/expenses", status_code=status.HTTP_201_CREATED)
-def create_expense(
-    description: Annotated[
-        str,
-        Query(
-            title="توضیح هزینه",
-            description="توضیح کاملی از هزینه انجام شده",
-            min_length=3,
-            max_length=200,
-            regex=r"^[آ-ی\u0600-\u06FFa-zA-Z0-9\s\-_.,!؟]+$",
-            example="خرید مواد غذایی از فروشگاه",
-        ),
-    ],
-    amount: Annotated[
-        float,
-        Query(
-            title="مبلغ هزینه",
-            description="مبلغ هزینه به تومان",
-            gt=0,  # greater than 0
-            le=10000000,  # حداکثر 10 میلیون تومان
-            example=150000.0,
-        ),
-    ],
-    category: Annotated[
-        Optional[str],
-        Query(
-            title="دسته‌بندی",
-            description="دسته‌بندی هزینه",
-            regex="^(غذا|حمل‌ونقل|خرید|قبوض|تفریح|سایر)$",
-            example="غذا",
-        ),
-    ] = "سایر",
-):
+@app.post(
+    "/expenses", response_model=ExpenseEnvelope, status_code=status.HTTP_201_CREATED
+)
+def create_expense(payload: ExpenseCreate):
     global next_id
 
     new_expense = {
         "id": next_id,
-        "description": description.strip(),
-        "amount": amount,
-        "category": category,
-        "created_at": "2025-09-29T14:45:00",  # در حالت واقعی از datetime استفاده کنید
+        "description": payload.description,
+        "amount": payload.amount,
     }
 
     expenses.append(new_expense)
@@ -220,97 +112,49 @@ def create_expense(
     return {
         "success": True,
         "message": "هزینه با موفقیت ایجاد شد",
-        "expense": new_expense,
+        "expense": ExpenseOut(**new_expense),
     }
 
 
-@app.get("/expenses/search")
+@app.get(
+    "/expenses/search", response_model=SearchResultsOut, status_code=status.HTTP_200_OK
+)
 def search_expenses(
-    query: Annotated[
+    q: Annotated[
         str,
-        Query(
-            title="متن جستجو",
-            description="متنی که می‌خواهید در توضیحات هزینه‌ها جستجو کنید",
-            min_length=1,
-            max_length=100,
-            regex=r"^[آ-ی\u0600-\u06FFa-zA-Z0-9\s]+$",  # فارسی، انگلیسی، عدد و فاصله
-            example="خرید",
-        ),
+        Query(..., description="متن جستجو", min_length=1, max_length=100),
     ],
-    case_sensitive: Annotated[
-        Optional[bool],
-        Query(
-            title="حساسیت به حروف",
-            description="آیا جستجو حساس به حروف بزرگ و کوچک باشد؟",
-            example=False,
-        ),
-    ] = False,
-    exact_match: Annotated[
-        Optional[bool],
-        Query(
-            title="تطابق دقیق",
-            description="جستجو برای تطابق دقیق یا جزئی",
-            example=False,
-        ),
-    ] = False,
-    limit_results: Annotated[
-        Optional[int],
-        Query(
-            title="محدود کردن نتایج",
-            description="حداکثر تعداد نتایج جستجو",
-            ge=1,
-            le=50,
-            example=20,
-        ),
-    ] = None,
 ):
 
-    search_query = query if case_sensitive else query.lower()
+    normalized_q = q.strip()
+    matches = [
+        expense for expense in expenses if normalized_q in expense["description"]
+    ]
 
-    matching_expenses = []
-
-    for expense in expenses:
-        expense_desc = (
-            expense["description"] if case_sensitive else expense["description"].lower()
+    if not matches:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="چیزی پیدا نشد"
         )
 
-        # نوع جستجو
-        if exact_match:
-            if search_query == expense_desc:
-                matching_expenses.append(expense)
-        else:
-            if search_query in expense_desc:
-                matching_expenses.append(expense)
-
-    if limit_results is not None:
-        matching_expenses = matching_expenses[:limit_results]
-
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "query": query,
-            "search_options": {
-                "case_sensitive": case_sensitive,
-                "exact_match": exact_match,
-                "limit_results": limit_results,
-            },
-            "results": matching_expenses,
-            "count": len(matching_expenses),
-            "total_searched": len(expenses),
-        },
-    )
+    return {
+        "query": normalized_q,
+        "results": [ExpenseOut(**expense) for expense in matches],
+        "count": len(matches),
+        "total_count": len(expenses),
+    }
 
 
-@app.get("/expenses/{expense_id}")
+@app.get(
+    "/expenses/{expense_id}", response_model=ExpenseOut, status_code=status.HTTP_200_OK
+)
 def get_expense(
     expense_id: Annotated[
         int,
         Path(
-            title="شناسه هزینه",
-            description="شناسه یکتای عددی هزینه که باید بزرگتر از 0 باشد",
-            ge=1,  # greater than or equal to 1
-            le=999999,  # less than or equal to 999999
-            example=1,
+            ...,
+            description="شناسه هزینه",
+            ge=1,
+            le=999999,
         ),
     ],
 ):
@@ -323,22 +167,25 @@ def get_expense(
             detail=f"هزینه‌ای با شناسه {expense_id} یافت نشد",
         )
 
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"expenses": expense})
+    return ExpenseOut(**expense)
 
 
-@app.put("/expenses/{expense_id}")
+@app.put(
+    "/expenses/{expense_id}",
+    response_model=ExpenseEnvelope,
+    status_code=status.HTTP_200_OK,
+)
 def update_expense(
     expense_id: Annotated[
         int,
         Path(
-            title="شناسه هزینه",
-            description="شناسه هزینه‌ای که می‌خواهید ویرایش کنید",
+            ...,
+            description="شناسه هزینه",
             ge=1,
-            example=1,
+            le=999999,
         ),
     ],
-    description: Optional[str] = None,
-    amount: Optional[float] = None,
+    payload: ExpenseUpdate = ...,
 ):
 
     expense_index = find_expense_index(expense_id)
@@ -349,47 +196,31 @@ def update_expense(
             detail=f"هزینه‌ای با شناسه {expense_id} یافت نشد",
         )
 
-    if description is not None:
-        if not description or not description.strip():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="توضیح هزینه نمی‌تواند خالی باشد",
-            )
-        expenses[expense_index]["description"] = description.strip()
+    if payload.description is not None:
+        expenses[expense_index]["description"] = payload.description
 
-    if amount is not None:
-        if amount <= 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="مبلغ هزینه باید بزرگ‌تر از صفر باشد",
-            )
-        expenses[expense_index]["amount"] = amount
+    if payload.amount is not None:
+        expenses[expense_index]["amount"] = payload.amount
 
-    if description is None and amount is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="حداقل یک فیلد برای بروزرسانی ارسال کنید",
-        )
-
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": "هزینه با موفقیت بروزرسانی شد",
-            "expense": expenses[expense_index],
-        },
-    )
+    return {
+        "message": "هزینه با موفقیت بروزرسانی شد",
+        "expense": ExpenseOut(**expenses[expense_index]),
+    }
 
 
-@app.delete("/expenses/{expense_id}")
+@app.delete(
+    "/expenses/{expense_id}",
+    response_model=DeleteEnvelope,
+    status_code=status.HTTP_200_OK,
+)
 def delete_expense(
     expense_id: Annotated[
         int,
         Path(
-            title="شناسه هزینه",
-            description="شناسه هزینه‌ای که می‌خواهید حذف کنید",
+            ...,
+            description="شناسه هزینه",
             ge=1,
             le=999999,
-            example=1,
         ),
     ],
 ):
@@ -404,10 +235,7 @@ def delete_expense(
 
     deleted_expense = expenses.pop(expense_index)
 
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": "هزینه با موفقیت حذف شد",
-            "deleted_expense": deleted_expense,
-        },
-    )
+    return {
+        "message": "هزینه با موفقیت حذف شد",
+        "deleted_expense": ExpenseOut(**deleted_expense),
+    }
