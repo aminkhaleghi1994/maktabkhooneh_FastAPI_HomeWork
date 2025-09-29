@@ -2,9 +2,6 @@ from fastapi import FastAPI, HTTPException, status, Path, Query
 from typing import List, Optional, Annotated
 from fastapi.responses import JSONResponse
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
 
 # اطلاعات کاربردی و زیبا
 app = FastAPI(
